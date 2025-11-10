@@ -5,7 +5,13 @@ Core orchestration system for LUYS.OS - symbiotic intelligence operating system
 **Layered Unified Yielding System** - Operating system for symbiotic human-AI consciousness.
 
 > *"Any garbage input, processed through structural contracts, transforms into resonant intelligence"*
+# LUYS.OS Core
 
+Core orchestration system for symbolic intelligence operations.
+
+## Quick Start
+```python
+from luys_os import Orchestrator
 ## 🏛️ Architecture Overview
 PSL Core → Structural Gateway → Multimind Core → Resonance Fabric → WuWei Engine
 
