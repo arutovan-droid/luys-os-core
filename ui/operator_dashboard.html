@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Operator Console | LUYS.OS</title>
+  <style>
+    body { background:#000; color:#0f0; font-family: 'Courier New', monospace; margin:0; padding:20px; }
+    .metric { border:1px solid #0f0; padding:10px; margin:10px 0; }
+  </style>
+</head>
+<body>
+  <h1>ОПЕРАТОР СВЕТА</h1>
+  <div class="metric"><h3>WS</h3><p id="ws">connecting…</p></div>
+  <div class="metric"><h3>HRR</h3><pre id="hrr">—</pre></div>
+  <div class="metric"><h3>Rollback</h3><pre id="rb">—</pre></div>
+
+  <script>
+    const ws = new WebSocket('ws://localhost:7777/wuwei/stream');
+    ws.onopen = () => document.getElementById('ws').textContent = 'CONNECTED';
+    ws.onclose = () => document.getElementById('ws').textContent = 'DISCONNECTED';
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'hrr_update' || msg.type === 'packet_passed') {
+        document.getElementById('hrr').textContent = JSON.stringify(msg, null, 2);
+      }
+      if (msg.type === 'rollback_report') {
+        document.getElementById('rb').textContent = JSON.stringify(msg, null, 2);
+      }
+    };
+  </script>
+</body>
+</html>
