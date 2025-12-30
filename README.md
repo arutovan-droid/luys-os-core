@@ -76,6 +76,35 @@ pip install -r requirements.txt
 
 # Run tests
 python -m pytest tests/
+# LUYS.OS Core — WuWei Core (MVP)
+
+Минимальный исполняемый слой **WuWei Orchestrator** для LUYS.OS:
+- REST API (FastAPI)
+- WebSocket stream `/wuwei/stream`
+- Operator Dashboard UI (статический HTML)
+- Rollback Queue + Execute
+- Event bus + tail (для UI / отладки)
+
+# luys-os-core — WuWei Core (MVP)
+
+FastAPI + WebSocket ядро (WuWei Engine) с:
+- `/api/signal` → обработка [FACT]/[HYP]
+- Rollback queue + `/api/rollback/*`
+- WebSocket `/wuwei/stream` (events bus)
+- UI: `/ui/operator_dashboard.html`
+
+## Quickstart (Windows)
+
+```bat
+cd C:\Users\H2H1\luys-os-core
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn api.main:app --host 127.0.0.1 --port 7777 --reload
+
+
+
+
 📄 License
 MIT License - see LICENSE for details.
 
