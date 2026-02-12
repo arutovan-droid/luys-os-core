@@ -3,31 +3,344 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Operator Console | LUYS.OS</title>
+  <title>Operator Console | LUYS.OS WuWei Core</title>
   <style>
-    body { background:#000; color:#0f0; font-family: 'Courier New', monospace; margin:0; padding:20px; }
-    .metric { border:1px solid #0f0; padding:10px; margin:10px 0; }
+    body {
+      background: #000;
+      color: #0f0;
+      font-family: "Courier New", monospace;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { margin: 0 0 14px; letter-spacing: 2px; }
+    .bar {
+      border: 1px solid #0f0;
+      padding: 12px;
+      margin: 10px 0 18px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .label { opacity: 0.9; }
+    input[type="text"] {
+      background: #000;
+      border: 1px solid #0f0;
+      color: #0f0;
+      padding: 10px 12px;
+      width: 240px;
+      outline: none;
+    }
+    button {
+      background: #000;
+      border: 1px solid #0f0;
+      color: #0f0;
+      padding: 10px 14px;
+      cursor: pointer;
+      letter-spacing: 1px;
+    }
+    button:hover { filter: brightness(1.2); }
+    .panel {
+      border: 1px solid #0f0;
+      padding: 14px;
+      margin: 14px 0;
+      min-height: 120px;
+    }
+    .panel h3 { margin: 0 0 10px; }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.35;
+    }
+    .status-ok { color: #0f0; }
+    .status-bad { color: #f00; }
+    .muted { opacity: 0.85; }
+    .small { font-size: 13px; }
   </style>
 </head>
+
 <body>
   <h1>ОПЕРАТОР СВЕТА</h1>
-  <div class="metric"><h3>WS</h3><p id="ws">connecting…</p></div>
-  <div class="metric"><h3>HRR</h3><pre id="hrr">—</pre></div>
-  <div class="metric"><h3>Rollback</h3><pre id="rb">—</pre></div>
+
+  <div class="bar">
+    <div class="row small">
+      <span id="wsStatus" class="status-bad">WS: DISCONNECTED</span>
+      <span class="muted">|</span>
+      <span id="apiStatus" class="status-bad">API: DOWN</span>
+      <span class="muted" style="margin-left: 10px;">origin: <span id="originText"></span></span>
+      <span class="muted">|</span>
+      <span class="muted">ws: <span id="wsText"></span></span>
+    </div>
+
+    <div class="row" style="margin-top: 12px;">
+      <span class="label">OPERATOR_ID:</span>
+      <input id="operatorId" type="text" value="OPERATOR_ID" />
+      <button id="btnHealth">HEALTH</button>
+      <button id="btnRefresh">REFRESH QUEUE</button>
+      <button id="btnExecute">EXECUTE ROLLBACK</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>HRR / Events</h3>
+    <pre id="eventsLog">-</pre>
+  </div>
+
+  <div class="panel">
+    <h3>Rollback Report</h3>
+    <pre id="rollbackLog">-</pre>
+  </div>
+
+  <div class="panel">
+    <h3>Rollback Queue</h3>
+    <pre id="queueLog">-</pre>
+  </div>
+
+  <div class="panel">
+    <h3>Send HYP Test</h3>
+    <div class="row">
+      <input id="pslId" type="text" value="psl_ui_test_1" />
+      <button id="btnSendHyp">SEND HYP</button>
+    </div>
+    <div class="small muted" style="margin-top: 10px;">
+      Отправляет: [HYP], resonance_score=0.7 → ожидается queue_rollback + запись в очередь.
+    </div>
+  </div>
 
   <script>
-    const ws = new WebSocket('ws://localhost:7777/wuwei/stream');
-    ws.onopen = () => document.getElementById('ws').textContent = 'CONNECTED';
-    ws.onclose = () => document.getElementById('ws').textContent = 'DISCONNECTED';
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'hrr_update' || msg.type === 'packet_passed') {
-        document.getElementById('hrr').textContent = JSON.stringify(msg, null, 2);
+    // -------- Config (same-origin safe) --------
+    const origin = window.location.origin;
+    const wsUrl =
+      origin.replace("http://", "ws://").replace("https://", "wss://") +
+      "/wuwei/stream";
+
+    document.getElementById("originText").textContent = origin;
+    document.getElementById("wsText").textContent = wsUrl;
+
+    // -------- DOM --------
+    const wsStatusEl = document.getElementById("wsStatus");
+    const apiStatusEl = document.getElementById("apiStatus");
+    const eventsLogEl = document.getElementById("eventsLog");
+    const rollbackLogEl = document.getElementById("rollbackLog");
+    const queueLogEl = document.getElementById("queueLog");
+    const operatorIdEl = document.getElementById("operatorId");
+    const pslIdEl = document.getElementById("pslId");
+
+    // -------- state --------
+    const MAX_EVENTS = 40;
+    const eventBuffer = [];
+    const rollbackBuffer = [];
+
+    function pretty(obj) {
+      return JSON.stringify(obj, null, 2);
+    }
+
+    function pushBuf(buf, obj) {
+      buf.push(obj);
+      while (buf.length > MAX_EVENTS) buf.shift();
+    }
+
+    function renderEvents() {
+      if (eventBuffer.length === 0) {
+        eventsLogEl.textContent = "-";
+        return;
       }
-      if (msg.type === 'rollback_report') {
-        document.getElementById('rb').textContent = JSON.stringify(msg, null, 2);
+      eventsLogEl.textContent = eventBuffer.map(pretty).join("\n\n");
+    }
+
+    function renderRollback() {
+      if (rollbackBuffer.length === 0) {
+        rollbackLogEl.textContent = "-";
+        return;
       }
-    };
+      rollbackLogEl.textContent = rollbackBuffer.map(pretty).join("\n\n");
+    }
+
+    function setApiStatus(ok, text) {
+      apiStatusEl.textContent = text;
+      apiStatusEl.className = ok ? "status-ok" : "status-bad";
+    }
+
+    function setWsStatus(ok, text) {
+      wsStatusEl.textContent = text;
+      wsStatusEl.className = ok ? "status-ok" : "status-bad";
+    }
+
+    async function apiGet(path) {
+      const r = await fetch(origin + path, { method: "GET" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    }
+
+    async function apiPost(path, body) {
+      const r = await fetch(origin + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return await r.json();
+    }
+
+    async function refreshQueue() {
+      const operator_id = operatorIdEl.value.trim() || "OPERATOR_ID";
+      const data = await apiGet(
+        `/api/rollback/status?operator_id=${encodeURIComponent(operator_id)}`
+      );
+      queueLogEl.textContent = pretty(data);
+      return data;
+    }
+
+    async function healthCheck() {
+      try {
+        const data = await apiGet("/health");
+        setApiStatus(true, "API: OK " + data.ts);
+        return data;
+      } catch (e) {
+        setApiStatus(false, "API: DOWN");
+        throw e;
+      }
+    }
+
+    async function sendHypTest() {
+      const operator_id = operatorIdEl.value.trim() || "OPERATOR_ID";
+      const psl_id = pslIdEl.value.trim() || "psl_ui_test_1";
+
+      const payload = {
+        operator_id,
+        payload: "HYP status",
+        psl_id,
+        psl_tag: "[HYP]",
+        source: "operator",
+        resonance_score: 0.7,
+        meta: {},
+      };
+
+      const res = await apiPost("/api/signal", payload);
+
+      // log REST response too (even if WS drops)
+      pushBuf(eventBuffer, { type: "rest_signal_response", ...res });
+      renderEvents();
+
+      await refreshQueue();
+      return res;
+    }
+
+    async function executeRollback() {
+      const operator_id = operatorIdEl.value.trim() || "OPERATOR_ID";
+      const res = await apiPost("/api/rollback/execute", { operator_id });
+
+      pushBuf(rollbackBuffer, { type: "rest_rollback_execute", ...res });
+      renderRollback();
+
+      await refreshQueue();
+      return res;
+    }
+
+    // -------- WS --------
+    let ws;
+
+    function connectWs() {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        setWsStatus(true, "WS: CONNECTED");
+      };
+
+      ws.onclose = () => {
+        setWsStatus(false, "WS: DISCONNECTED");
+        setTimeout(connectWs, 1500);
+      };
+
+      ws.onerror = () => {
+        setWsStatus(false, "WS: ERROR");
+      };
+
+      ws.onmessage = async (ev) => {
+        let msg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          msg = { type: "raw", data: ev.data };
+        }
+
+        // general events
+        pushBuf(eventBuffer, msg);
+        renderEvents();
+
+        // rollback-specific
+        if (
+          msg.type &&
+          (msg.type.startsWith("rollback_") ||
+            msg.type === "rollback_execute_response")
+        ) {
+          pushBuf(rollbackBuffer, msg);
+          renderRollback();
+        }
+
+        // auto refresh queue on important events
+        if (msg.type === "hrr_update" && msg.action === "queued_for_rollback") {
+          await refreshQueue();
+        }
+        if (msg.type === "rollback_execute_response") {
+          await refreshQueue();
+        }
+      };
+    }
+
+    // -------- Buttons --------
+    document.getElementById("btnHealth").addEventListener("click", async () => {
+      await healthCheck();
+    });
+
+    document.getElementById("btnRefresh").addEventListener("click", async () => {
+      await refreshQueue();
+    });
+
+    document.getElementById("btnExecute").addEventListener("click", async () => {
+      await executeRollback();
+    });
+
+    document.getElementById("btnSendHyp").addEventListener("click", async () => {
+      await sendHypTest();
+    });
+
+    // -------- Boot --------
+    (async function boot() {
+      await healthCheck();
+      await refreshQueue();
+
+      // Load last events from server log (so refresh doesn't lose history)
+      try {
+        const operator_id = operatorIdEl.value.trim() || "OPERATOR_ID";
+        const tail = await apiGet(
+          `/api/events/tail?n=40&operator_id=${encodeURIComponent(operator_id)}`
+        );
+
+        if (tail.items && Array.isArray(tail.items)) {
+          tail.items.forEach((ev) => {
+            pushBuf(eventBuffer, ev);
+            if (
+              ev.type &&
+              (ev.type.startsWith("rollback_") ||
+                ev.type === "rollback_execute_response")
+            ) {
+              pushBuf(rollbackBuffer, ev);
+            }
+          });
+
+          renderEvents();
+          renderRollback();
+        }
+      } catch (e) {
+        // ignore tail errors
+      }
+
+      connectWs();
+    })();
   </script>
 </body>
 </html>

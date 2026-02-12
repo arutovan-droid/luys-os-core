@@ -1,63 +1,63 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
-from enum import Enum
-from typing import Optional, Dict, Any, List
-
-from services.event_bus import BUS
+from datetime import datetime
+from typing import Dict, List, Literal
 
 
-class RollbackScope(str, Enum):
-    EMOTIONAL_NOISE = "emotional_buffer"
-    COGNITIVE_HALLUCINATION = "unverified_hyp"
-    EXTERNAL_CONTAMINATION = "unauthorized_authority_claims"
+Scope = Literal["unverified_hyp", "emotional_buffer", "external_contamination"]
 
 
-@dataclass(frozen=True)
+@dataclass
 class RollbackItem:
     operator_id: str
     psl_id: str
     trigger: str
-    scope: RollbackScope
-    created_at: datetime
-    payload: Optional[Dict[str, Any]] = None
+    scope: Scope
+    created_at: str
 
 
 class RollbackService:
     def __init__(self) -> None:
         self._queue: List[RollbackItem] = []
-        self._last_report: Dict[str, Any] | None = None
 
-    def queue_rollback_check(self, item: RollbackItem) -> None:
-        self._queue.append(item)
+    def queue_rollback_check(
+        self,
+        operator_id: str,
+        psl_id: str,
+        trigger: str = "hrr_violation",
+        scope: Scope = "unverified_hyp",
+    ) -> None:
+        self._queue.append(
+            RollbackItem(
+                operator_id=operator_id,
+                psl_id=psl_id,
+                trigger=trigger,
+                scope=scope,
+                created_at=datetime.now().isoformat(),
+            )
+        )
 
     def pending_count(self) -> int:
         return len(self._queue)
 
+    def list_pending(self, operator_id: str) -> List[Dict]:
+        items = [x for x in self._queue if x.operator_id == operator_id]
+        return [
+            {
+                "psl_id": x.psl_id,
+                "trigger": x.trigger,
+                "scope": x.scope,
+                "created_at": x.created_at,
+            }
+            for x in items
+        ]
+
     async def execute_rollback(self, operator_id: str) -> int:
         before = len(self._queue)
         self._queue = [x for x in self._queue if x.operator_id != operator_id]
-        deleted = before - len(self._queue)
-
-        self._last_report = {
-            "type": "rollback_report",
-            "operator_id": operator_id,
-            "deleted": deleted,
-            "timestamp": datetime.now().isoformat()
-        }
-        await BUS.publish(self._last_report)
-        return deleted
-
-    async def schedule_daily(self, operator_id: str, hour: int = 4) -> None:
-        while True:
-            now = datetime.now()
-            next_run = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-            if now >= next_run:
-                next_run += timedelta(days=1)
-
-            await asyncio.sleep((next_run - now).total_seconds())
-            await self.execute_rollback(operator_id)
+        after = len(self._queue)
+        return before - after
 
 
 ROLLBACK = RollbackService()
