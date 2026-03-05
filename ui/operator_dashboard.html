@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
@@ -63,7 +63,7 @@
 </head>
 
 <body>
-  <h1>ОПЕРАТОР СВЕТА</h1>
+  <h1>ÐžÐŸÐ•Ð ÐÐ¢ÐžÐ  Ð¡Ð’Ð•Ð¢Ð</h1>
 
   <div class="bar">
     <div class="row small">
@@ -106,7 +106,7 @@
       <button id="btnSendHyp">SEND HYP</button>
     </div>
     <div class="small muted" style="margin-top: 10px;">
-      Отправляет: [HYP], resonance_score=0.7 → ожидается queue_rollback + запись в очередь.
+      ÐžÑ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐµÑ‚: [HYP], resonance_score=0.7 â†’ Ð¾Ð¶Ð¸Ð´Ð°ÐµÑ‚ÑÑ queue_rollback + Ð·Ð°Ð¿Ð¸ÑÑŒ Ð² Ð¾Ñ‡ÐµÑ€ÐµÐ´ÑŒ.
     </div>
   </div>
 
@@ -176,7 +176,12 @@
     }
 
     async function apiPost(path, body) {
-      const r = await fetch(origin + path, {
+            // LUYS_UTILIZER_META_INJECT
+      payload.meta = payload.meta || {};
+      payload.meta.session_id = payload.meta.session_id || getSessionId();
+      const um = getUtilizerMode();
+      if (um) payload.meta.utilizer_mode = um;
+const r = await fetch(origin + path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -342,5 +347,19 @@
       connectWs();
     })();
   </script>
+<!-- Utilizer controls -->
+<div style="position:fixed;right:16px;bottom:16px;background:#fff;border:1px solid #ddd;padding:10px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,0.08);font-family:system-ui;z-index:9999">
+  <div style="font-size:12px;opacity:.8;margin-bottom:6px">Utilizer</div>
+  <label style="font-size:12px">Mode:</label>
+  <select id="utilizer_mode" style="margin-left:6px">
+    <option value="">AUTO</option>
+    <option value="MINI">MINI</option>
+    <option value="FULL">FULL</option>
+    <option value="DIRECT">DIRECT</option>
+  </select>
+</div>
 </body>
 </html>
+
+
+
