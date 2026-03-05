@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any, Optional
 
@@ -9,8 +9,8 @@ from .models import Decision, DecisionType, ResonancePacket
 
 # --- Utilizer hook (lightweight; does not change WuWei's gatekeeping role) ---
 from pathlib import Path
-from utilizer.router import decide_mode
-from utilizer.types import SessionState, Phase
+from utilizer.router import decide_mode, RouteDecision
+from utilizer.types import SessionState, Phase, Mode
 from utilizer.sources_loader import load_sources
 from utilizer.engine import UtilizerEngine
 
@@ -50,12 +50,28 @@ def _inject_text(payload: Any, new_text: str) -> Any:
     return {"text": new_text, "original_payload": payload}
 
 
+def _forced_mode(meta: Any) -> Optional[Mode]:
+    if not isinstance(meta, dict):
+        return None
+    raw = meta.get("utilizer_mode") or meta.get("mode_override") or meta.get("mode")
+    if not raw:
+        return None
+    s = str(raw).strip().upper()
+    if s in ("FULL", "FULL_UTILIZER"):
+        return Mode.FULL
+    if s in ("MINI", "MINI_UTILIZER"):
+        return Mode.MINI
+    if s in ("DIRECT", "DIRECT_PASS"):
+        return Mode.DIRECT
+    return None
+
+
 class WuWeiEngine:
     """
     MVP:
     - [FACT] + score==1.0 => direct_pass + event
     - [HYP] + score<1.0   => queue_rollback + event
-    - score>=0.95         => symbiotic_suggestion (заглушка) + event
+    - score>=0.95         => symbiotic_suggestion (Ð·Ð°Ð³Ð»ÑƒÑˆÐºÐ°) + event
     - else                => drop
     """
 
@@ -71,7 +87,7 @@ class WuWeiEngine:
     async def process(self, packet: ResonancePacket) -> Optional[Decision]:
         tag = packet.psl_tag.strip()
 
-        # [HYP] без идеального резонанса -> очередь отката
+        # [HYP] Ð±ÐµÐ· Ð¸Ð´ÐµÐ°Ð»ÑŒÐ½Ð¾Ð³Ð¾ Ñ€ÐµÐ·Ð¾Ð½Ð°Ð½ÑÐ° -> Ð¾Ñ‡ÐµÑ€ÐµÐ´ÑŒ Ð¾Ñ‚ÐºÐ°Ñ‚Ð°
         if tag == "[HYP]" and packet.resonance_score < 1.0:
             ROLLBACK.queue_rollback_check(
                 operator_id=self.operator_id,
@@ -91,7 +107,7 @@ class WuWeiEngine:
             )
             return Decision(type=DecisionType.QUEUE_ROLLBACK.value, reason="HYP<1.0 queued")
 
-        # [FACT] + HRR=1.0 -> прямой пропуск
+        # [FACT] + HRR=1.0 -> Ð¿Ñ€ÑÐ¼Ð¾Ð¹ Ð¿Ñ€Ð¾Ð¿ÑƒÑÐº
         if tag == "[FACT]" and packet.resonance_score == 1.0:
             await BUS.publish(
                 {
@@ -107,7 +123,8 @@ class WuWeiEngine:
             # --- Utilizer projection (non-breaking) ---
             txt = _extract_text(packet.payload)
             if txt:
-                decision = decide_mode(txt)
+                forced = _forced_mode(packet.meta or {})
+                decision = RouteDecision(mode=forced, reason="forced_by_client") if forced else decide_mode(txt)
                 # store state per conversation if exists; fallback to fresh session
                 st_dict = (packet.meta or {}).get("utilizer_state")
                 if isinstance(st_dict, dict) and "phase" in st_dict:
@@ -143,7 +160,7 @@ class WuWeiEngine:
 
             return Decision(type=DecisionType.DIRECT_PASS.value, payload=packet.payload, meta=packet.meta)
 
-        # Резонанс >= порога -> suggestion (пока заглушка)
+        # Ð ÐµÐ·Ð¾Ð½Ð°Ð½Ñ >= Ð¿Ð¾Ñ€Ð¾Ð³Ð° -> suggestion (Ð¿Ð¾ÐºÐ° Ð·Ð°Ð³Ð»ÑƒÑˆÐºÐ°)
         if packet.resonance_score >= self.resonance_threshold:
             await BUS.publish(
                 {
@@ -160,3 +177,7 @@ class WuWeiEngine:
             )
 
         return Decision(type=DecisionType.DROP.value, reason="noise_dropped", meta=packet.meta)
+
+
+
+
