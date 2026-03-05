@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict
@@ -14,6 +14,14 @@ from services.event_log import EVENT_LOG
 from services.rollback_service import ROLLBACK
 from services.heartbeat import HEARTBEAT
 
+
+# --- Utilizer state store (MVP: in-memory) ---
+_UTILIZER_STATE_STORE: Dict[str, Dict[str, Any]] = {}
+
+def _utilizer_session_key(operator_id: str, meta: Dict[str, Any]) -> str:
+    # Prefer explicit session_id if client provides it; fallback to operator_id
+    sid = (meta or {}).get("session_id")
+    return str(sid) if sid else str(operator_id)
 
 app = FastAPI(title="LUYS.OS WuWei Core (MVP)")
 @app.on_event("startup")
@@ -55,6 +63,13 @@ def events_tail(n: int = 40, operator_id: str | None = None) -> Dict[str, Any]:
 async def signal(inp: SignalIn) -> Dict[str, Any]:
     engine = WuWeiEngine(operator_id=inp.operator_id)
 
+
+    session_key = _utilizer_session_key(inp.operator_id, inp.meta)
+    meta = dict(inp.meta or {})
+    # Inject previous utilizer_state if not provided in request
+    if "utilizer_state" not in meta and session_key in _UTILIZER_STATE_STORE:
+        meta["utilizer_state"] = _UTILIZER_STATE_STORE[session_key]    
+
     packet = ResonancePacket(
         payload=inp.payload,
         psl_id=inp.psl_id,
@@ -62,10 +77,15 @@ async def signal(inp: SignalIn) -> Dict[str, Any]:
         timestamp=datetime.now(),
         source=Source(inp.source),
         resonance_score=inp.resonance_score,
-        meta=inp.meta,
+        meta=meta,
     )
 
     decision = await engine.process(packet)
+
+    # Persist utilizer_state for the next request in this session
+    if decision is not None and decision.meta and "utilizer_state" in decision.meta:
+        _UTILIZER_STATE_STORE[session_key] = decision.meta["utilizer_state"]
+
     return {
         "decision": None
         if decision is None
@@ -112,3 +132,6 @@ async def wuwei_stream(ws: WebSocket):
             await ws.send_json(event)
     except WebSocketDisconnect:
         BUS.unsubscribe(q)
+
+
+
