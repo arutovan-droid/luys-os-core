@@ -13,6 +13,7 @@ from services.event_bus import BUS
 from services.event_log import EVENT_LOG
 from services.rollback_service import ROLLBACK
 from services.heartbeat import HEARTBEAT
+from services.bytovaya_projection import project as _project
 
 
 # --- Utilizer state store (MVP: in-memory) ---
@@ -82,6 +83,12 @@ async def signal(inp: SignalIn) -> Dict[str, Any]:
 
     decision = await engine.process(packet)
 
+    # User-facing cleanup (бытовая проекция) — меняем только текст
+    if decision is not None and decision.payload is not None:
+        if isinstance(decision.payload, str):
+            decision.payload = _project(decision.payload)
+        elif isinstance(decision.payload, dict) and isinstance(decision.payload.get("text"), str):
+            decision.payload["text"] = _project(decision.payload["text"])
     # Persist utilizer_state for the next request in this session
     if decision is not None and decision.meta and "utilizer_state" in decision.meta:
         _UTILIZER_STATE_STORE[session_key] = decision.meta["utilizer_state"]
@@ -132,6 +139,7 @@ async def wuwei_stream(ws: WebSocket):
             await ws.send_json(event)
     except WebSocketDisconnect:
         BUS.unsubscribe(q)
+
 
 
 
