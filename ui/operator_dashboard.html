@@ -63,7 +63,7 @@
 </head>
 
 <body>
-  <h1>ÐžÐŸÐ•Ð ÐÐ¢ÐžÐ  Ð¡Ð’Ð•Ð¢Ð</h1>
+  <h1>Отправляет: [HYP], resonance_score=0.7 -> ожидается queue_rollback + запись в очередь.</h1>
 
   <div class="bar">
     <div class="row small">
@@ -106,7 +106,7 @@
       <button id="btnSendHyp">SEND HYP</button>
     </div>
     <div class="small muted" style="margin-top: 10px;">
-      ÐžÑ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐµÑ‚: [HYP], resonance_score=0.7 â†’ Ð¾Ð¶Ð¸Ð´Ð°ÐµÑ‚ÑÑ queue_rollback + Ð·Ð°Ð¿Ð¸ÑÑŒ Ð² Ð¾Ñ‡ÐµÑ€ÐµÐ´ÑŒ.
+      Отправляет: [HYP], resonance_score=0.7 -> ожидается queue_rollback + запись в очередь.
     </div>
   </div>
 
@@ -357,9 +357,20 @@ const r = await fetch(origin + path, {
     <option value="FULL">FULL</option>
     <option value="DIRECT">DIRECT</option>
   </select>
+  <div style="margin-top:8px;font-size:12px">
+    Phase: <span id="utilizer_phase" style="font-weight:600">—</span>
+  </div>
+  <button id="btnResetSession" style="margin-top:8px;font-size:12px;padding:6px 8px;border:1px solid #ddd;border-radius:8px;background:#f7f7f7;cursor:pointer">
+    Reset session
+  </button>
 </div>
 </body>
 </html>
+
+
+
+
+
 
 
 
