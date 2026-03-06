@@ -127,3 +127,36 @@ Best practice: keep aiogram and luys-os-core in separate virtualenvs.
 Status
 
 MVP is running: REST OK, WS events OK, rollback queue OK, UI OK.
+## 🔄 Utilizer — двигатель структурного мышления (v0.2.0)
+
+**Utilizer** — пятифазный FSM-движок, встроенный в LUYS.OS. Он переводит любой вход (включая «мусорные» запросы) из режима пассивного ответа в структурный цикл: **суть → вопросы → контракт → действие → кристалл**.
+
+### 🧠 5 фаз
+
+| Фаза | Назначение |
+|------|------------|
+| **DISTILL** | Извлечение сути из сырого запроса |
+| **RESONANCE** | Уточняющие/расщепляющие вопросы |
+| **PSL** | Формализация как мини-контракт |
+| **EXECUTION** | 1–3 шага действия |
+| **LIBRARIUM** | Фиксация результата как «кристалла» |
+
+### 🎮 Режимы работы
+
+Режим задаётся через `meta.utilizer_mode`:
+- **AUTO** — роутер выбирает режим автоматически
+- **MINI** — короткие вопросы и шаги
+- **FULL** — полный цикл
+- **DIRECT** — прямой ответ + один шаг
+
+### 🧪 Тест (PowerShell)
+
+```powershell
+@'
+{"operator_id":"op1","payload":"Мне скучно","psl_id":"p1","psl_tag":"[FACT]","source":"operator","resonance_score":1.0,"meta":{"session_id":"test_1","utilizer_mode":"FULL"}}
+'@ | Set-Content -Encoding UTF8 req.json
+
+curl.exe -s -X POST "http://127.0.0.1:7777/api/signal" -H "Content-Type: application/json; charset=utf-8" --data-binary "@req.json"
+Ожидаемый ответ: decision.meta.utilizer_state.phase начинается с RESONANCE
+
+
