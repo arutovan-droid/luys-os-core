@@ -13,7 +13,6 @@ from services.event_bus import BUS
 from services.event_log import EVENT_LOG
 from services.rollback_service import ROLLBACK
 from services.heartbeat import HEARTBEAT
-from services.bytovaya_projection import project as _project
 
 
 # --- Utilizer state store (MVP: in-memory) ---
@@ -43,7 +42,6 @@ class SignalIn(BaseModel):
     source: str = Field("operator", description="operator|latp|resonance|librarium")
     resonance_score: float = Field(..., ge=0.0, le=1.0)
     meta: Dict[str, Any] = Field(default_factory=dict)
-    reset_phase: bool = Field(False, description='сбросить фазу Utilizer в DISTILL')
 
 
 class RollbackIn(BaseModel):
@@ -63,45 +61,14 @@ def events_tail(n: int = 40, operator_id: str | None = None) -> Dict[str, Any]:
 
 @app.post("/api/signal")
 async def signal(inp: SignalIn) -> Dict[str, Any]:
-    from utilizer.types import SessionState, Phase
-    
     engine = WuWeiEngine(operator_id=inp.operator_id)
+
 
     session_key = _utilizer_session_key(inp.operator_id, inp.meta)
     meta = dict(inp.meta or {})
-    
-    # --- Utilizer state management (загрузка) ---
-    print(f"🔍 reset_phase для {session_key} = {inp.reset_phase}")
-    
-    # Загружаем существующее состояние (если есть и нет сброса)
-    if not inp.reset_phase:
-        st_dict = _UTILIZER_STATE_STORE.get(session_key)
-        if st_dict and "phase" in st_dict:
-            try:
-                st = SessionState(phase=Phase(st_dict["phase"]))
-                st.distill = st_dict.get("distill")
-                st.resonance_questions = st_dict.get("resonance_questions", []) or []
-                st.psl_contract = st_dict.get("psl_contract")
-                st.execution_steps = st_dict.get("execution_steps", []) or []
-                st.crystal_id = st_dict.get("crystal_id")
-                st.crystal_text = st_dict.get("crystal_text")
-            except Exception:
-                st = SessionState(phase=Phase.DISTILL)
-        else:
-            st = SessionState(phase=Phase.DISTILL)
-        
-        # Подмешиваем состояние в meta для engine
-        if "utilizer_state" not in meta:
-            meta["utilizer_state"] = {}
-        meta["utilizer_state"].update({
-            "phase": st.phase.value,
-            "distill": st.distill,
-            "resonance_questions": st.resonance_questions,
-            "psl_contract": st.psl_contract,
-            "execution_steps": st.execution_steps,
-            "crystal_id": st.crystal_id,
-            "crystal_text": st.crystal_text,
-        })
+    # Inject previous utilizer_state if not provided in request
+    if "utilizer_state" not in meta and session_key in _UTILIZER_STATE_STORE:
+        meta["utilizer_state"] = _UTILIZER_STATE_STORE[session_key]    
 
     packet = ResonancePacket(
         payload=inp.payload,
@@ -115,32 +82,8 @@ async def signal(inp: SignalIn) -> Dict[str, Any]:
 
     decision = await engine.process(packet)
 
-    # --- Сброс фазы (принудительно после engine) ---
-    if inp.reset_phase:
-        if decision is not None:
-            if decision.meta is None:
-                decision.meta = {}
-            if "utilizer_state" not in decision.meta:
-                decision.meta["utilizer_state"] = {}
-            # Принудительно ставим DISTILL
-            decision.meta["utilizer_state"]["phase"] = Phase.DISTILL.value
-            # Очищаем накопленные данные
-            decision.meta["utilizer_state"]["distill"] = None
-            decision.meta["utilizer_state"]["resonance_questions"] = []
-            decision.meta["utilizer_state"]["psl_contract"] = None
-            decision.meta["utilizer_state"]["execution_steps"] = []
-            # Сохраняем в store
-            _UTILIZER_STATE_STORE[session_key] = decision.meta["utilizer_state"]
-
-    # User-facing cleanup (бытовая проекция) — меняем только текст
-    if decision is not None and decision.payload is not None:
-        if isinstance(decision.payload, str):
-            decision.payload = _project(decision.payload)
-        elif isinstance(decision.payload, dict) and isinstance(decision.payload.get("text"), str):
-            decision.payload["text"] = _project(decision.payload["text"])
-    
-    # Persist utilizer_state for the next request in this session (если не было сброса)
-    if not inp.reset_phase and decision is not None and decision.meta and "utilizer_state" in decision.meta:
+    # Persist utilizer_state for the next request in this session
+    if decision is not None and decision.meta and "utilizer_state" in decision.meta:
         _UTILIZER_STATE_STORE[session_key] = decision.meta["utilizer_state"]
 
     return {
@@ -189,3 +132,6 @@ async def wuwei_stream(ws: WebSocket):
             await ws.send_json(event)
     except WebSocketDisconnect:
         BUS.unsubscribe(q)
+
+
+
